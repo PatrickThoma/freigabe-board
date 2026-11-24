@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Freigabe-Center</title>
+<style>
+  :root{
+    --papier:#f7f7f8; --karte:#fff; --rand:#dcdce1; --text:#17171a; --leise:#6b6b75;
+    --ja:#1f7a42; --nein:#9c2a2a; --ind:#8a5b00; --hinweis:#2b5cab;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --papier:#15161a; --karte:#1e2026; --rand:#33353d; --text:#f2f2f4; --leise:#a0a2ad;
+           --ja:#4ec07d; --nein:#ef8080; --ind:#e0b04b; --hinweis:#8fb4f2; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--papier);color:var(--text);
+       font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+  header{position:sticky;top:0;z-index:5;background:var(--papier);
+         border-bottom:1px solid var(--rand);padding:12px 16px 8px}
+  h1{margin:0;font-size:19px;letter-spacing:.2px}
+  .reiter{display:flex;gap:8px;margin-top:10px}
+  .reiter button{flex:1;min-height:40px;border:1px solid var(--rand);background:var(--karte);
+                 color:var(--text);border-radius:10px;font-size:15px}
+  .reiter button[aria-selected=true]{background:var(--text);color:var(--papier);font-weight:600}
+  main{padding:14px 16px 80px;max-width:760px;margin:0 auto}
+  .kachel{background:var(--karte);border:1px solid var(--rand);border-radius:14px;
+          padding:14px;margin-bottom:12px}
+  .kopf{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
+        width:100%;background:none;border:0;color:inherit;text-align:left;padding:0;font:inherit}
+  .kurz{font-weight:600;font-size:17px;line-height:1.3}
+  .meta{color:var(--leise);font-size:13px;margin-top:4px}
+  .pfeil{color:var(--leise);font-size:20px;line-height:1;padding-left:6px}
+  .rat{margin-top:10px;color:var(--text);font-size:15px}
+  .rat b{color:var(--hinweis)}
+  .mehr{margin-top:12px;border-top:1px dashed var(--rand);padding-top:12px;font-size:15px}
+  .mehr h3{margin:0 0 6px;font-size:14px;color:var(--leise);text-transform:uppercase;
+           letter-spacing:.6px}
+  pre{white-space:pre-wrap;word-break:break-word;background:var(--papier);
+      border:1px solid var(--rand);border-radius:10px;padding:10px;margin:0;
+      font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:50vh;overflow:auto}
+  .summe{color:var(--leise);font-size:12px;margin-top:6px;word-break:break-all}
+  .knoepfe{display:flex;gap:8px;margin-top:14px}
+  .knoepfe button{flex:1;min-height:48px;border-radius:12px;border:1px solid var(--rand);
+                  font-size:16px;font-weight:600;background:var(--karte);color:var(--text)}
+  .knoepfe button.k-ja{border-color:var(--ja);color:var(--ja)}
+  .knoepfe button.k-nein{border-color:var(--nein);color:var(--nein)}
+  .knoepfe button.k-ind{border-color:var(--ind);color:var(--ind)}
+  .freitext{margin-top:12px;display:none}
+  .freitext textarea{width:100%;min-height:96px;padding:10px;border-radius:10px;
+                     border:1px solid var(--rand);background:var(--papier);color:var(--text);
+                     font:15px/1.4 inherit}
+  .freitext button{margin-top:8px;width:100%;min-height:48px;border-radius:12px;
+                   border:1px solid var(--ind);background:var(--ind);color:#fff;
+                   font-size:16px;font-weight:600}
+  form.anmeldung{max-width:360px;margin:40px auto;display:grid;gap:10px}
+  form.anmeldung input{min-height:48px;padding:0 12px;border-radius:10px;
+                       border:1px solid var(--rand);background:var(--karte);color:var(--text);
+                       font-size:16px}
+  form.anmeldung button{min-height:48px;border-radius:12px;border:0;background:var(--text);
+                        color:var(--papier);font-size:16px;font-weight:600}
+  .leer{color:var(--leise);text-align:center;padding:40px 10px}
+  .fehler{color:var(--nein);font-size:14px;min-height:20px}
+  .plakette{display:inline-block;font-size:12px;border:1px solid var(--rand);border-radius:99px;
+            padding:1px 8px;color:var(--leise);margin-right:6px}
+  .p-geld{border-color:var(--ind);color:var(--ind)}
+  .p-regeldatei{border-color:var(--hinweis);color:var(--hinweis)}
+  .verlauf{font-size:14px;color:var(--leise)}
+  .verlauf b{color:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Freigabe-Center</h1>
+  <div class="reiter" id="reiter" hidden>
+    <button id="r-offen" aria-selected="true">Offen</button>
+    <button id="r-protokoll" aria-selected="false">Protokoll</button>
+  </div>
+</header>
+<main id="haupt"></main>
+
+<!-- Legt Dex beim Einspielen daneben. Fehlt sie, redet die Seite
+     mit dem Testdienst auf demselben Rechner. -->
+<script src="fc-config.js" onerror="void 0"></script>
+
+<script>
+// Zwei Welten, eine Seite.
+//   Ohne fc-config.js: der Testdienst auf demselben Rechner.
+//   Mit fc-config.js (window.FC_SUPABASE = {url, anon}): das echte Projekt mit Supabase Auth.
+const ECHT = !!(globalThis.FC_SUPABASE && globalThis.FC_SUPABASE.url);
+
+const Z = {
+  sitzung: localStorage.getItem("fc-sitzung") || "",
+  ansicht: "offen",
+  anfragen: [],
+  auf: new Set(),
+};
+const haupt = document.getElementById("haupt");
+const reiter = document.getElementById("reiter");
+
+function text(t){ return (t == null ? "" : String(t)); }
+// Steuer- und Richtungszeichen sichtbar machen: sonst kann ein Text anders aussehen als er ist
+// (Bau, 23.11.). Angezeigt wird der Codepunkt in spitzen Klammern.
+function entschaerfe(t){
+  return text(t).replace(/[\u0000-\u0008\u000B-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g,
+    c => "<U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+}
+function sicher(t){ const d = document.createElement("div"); d.textContent = entschaerfe(t); return d.innerHTML; }
+
+// --- Welt 1: Testdienst ---------------------------------------------------
+const API_TEST = {
+  async start(){ return !!Z.sitzung; },
+  async anmelden(f){
+    const a = await fetch("/anmelden", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({benutzer:f.benutzer, passwort:f.passwort, code:f.code})});
+    const d = await a.json().catch(() => ({}));
+    if (!a.ok) throw new Error(d.fehler || "Anmeldung abgelehnt");
+    Z.sitzung = d.sitzung;
+    localStorage.setItem("fc-sitzung", d.sitzung);
+  },
+  abmelden(){ localStorage.removeItem("fc-sitzung"); Z.sitzung = ""; },
+  async hole(weg){
+    const a = await fetch(weg, {headers:{"Authorization":"Bearer " + Z.sitzung}});
+    if (a.status === 401){ abmelden(); throw new Error("nicht angemeldet"); }
+    const d = await a.json().catch(() => ({}));
+    if (!a.ok) throw new Error(d.fehler || ("Fehler " + a.status));
+    return d.anfragen || [];
+  },
+  offen(){ return this.hole("/patrick/offen"); },
+  protokoll(){ return this.hole("/patrick/protokoll"); },
+  async entscheiden(id, urteil, freitext){
+    const a = await fetch("/patrick/entscheidung", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer " + Z.sitzung},
+      body: JSON.stringify({id, urteil, freitext})});
+    const d = await a.json().catch(() => ({}));
+    if (!a.ok) throw new Error(d.fehler || ("Fehler " + a.status));
+  },
+};
+
+// --- Welt 2: das echte Projekt -------------------------------------------
+const API_ECHT = {
+  sb: null,
+  async _client(){
+    if (!this.sb){
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      this.sb = createClient(FC_SUPABASE.url, FC_SUPABASE.anon,
+        { db:{ schema:"agents" }, auth:{ persistSession:true, autoRefreshToken:true } });
+    }
+    return this.sb;
+  },
+  async start(){
+    const sb = await this._client();
+    const { data } = await sb.auth.getSession();
+    Z.sitzung = data.session ? "angemeldet" : "";
+    return !!Z.sitzung;
+  },
+  async anmelden(f){
+    const sb = await this._client();
+    const an = await sb.auth.signInWithPassword({ email: f.benutzer, password: f.passwort });
+    if (an.error) throw new Error("Anmeldung abgelehnt");
+    // Zweiter Faktor ist Pflicht. Ohne ihn lehnt auch die Datenbank jede Entscheidung ab.
+    const fak = await sb.auth.mfa.listFactors();
+    const totp = fak.data && fak.data.totp && fak.data.totp[0];
+    if (!totp){ await sb.auth.signOut(); throw new Error("Kein zweiter Faktor eingerichtet"); }
+    const pr = await sb.auth.mfa.challengeAndVerify({ factorId: totp.id, code: f.code });
+    if (pr.error){ await sb.auth.signOut(); throw new Error("Zweiter Faktor abgelehnt"); }
+    Z.sitzung = "angemeldet";
+  },
+  async abmelden(){ Z.sitzung = ""; if (this.sb) await this.sb.auth.signOut(); },
+  // Alles vor dem Scharfschalten am 24.11.2026 um 11:48 waren Proben aus Bau und Abnahme.
+  // Sie bleiben im Protokoll der Datenbank stehen, dort kann und soll nichts verschwinden.
+  // Auf der Seite zeigen wir sie nicht: fuer Patrick waere das Muell, keine Freigabe.
+  SCHARF_AB: "2026-11-24T10:48:49Z",
+  async offen(){
+    const sb = await this._client();
+    const { data, error } = await sb.from("freigabe_anfrage")
+      .select("*, freigabe_entscheidung(id)").gte("erstellt_am", this.SCHARF_AB).order("nr");
+    if (error) throw new Error(error.message);
+    return (data || []).filter(a => !(a.freigabe_entscheidung || []).length);
+  },
+  async protokoll(){
+    const sb = await this._client();
+    const { data, error } = await sb.from("freigabe_anfrage")
+      .select("*, freigabe_entscheidung(*), freigabe_ausfuehrung(*)")
+      .gte("erstellt_am", this.SCHARF_AB).order("nr", {ascending:false});
+    if (error) throw new Error(error.message);
+    return (data || []).map(a => Object.assign(a, {
+      entscheidungen: (a.freigabe_entscheidung || [])
+        .sort((x,y) => String(x.entschieden_am).localeCompare(String(y.entschieden_am))),
+      ausfuehrungen: a.freigabe_ausfuehrung || [],
+    }));
+  },
+  async entscheiden(id, urteil, freitext){
+    const sb = await this._client();
+    const { error } = await sb.from("freigabe_entscheidung")
+      .insert({ anfrage_id: id, urteil, freitext: freitext || null });
+    if (error) throw new Error(error.message);
+  },
+};
+
+const API = ECHT ? API_ECHT : API_TEST;
+
+async function abmelden(){
+  await API.abmelden();
+  reiter.hidden = true;
+  zeigeAnmeldung();
+}
+
+function zeigeAnmeldung(fehler){
+  haupt.innerHTML = `
+    <form class="anmeldung" id="f-an">
+      <input name="benutzer" type="email" autocomplete="username" placeholder="Mailadresse" required>
+      <input name="passwort" type="password" autocomplete="current-password" placeholder="Passwort" required>
+      <input name="code" type="text" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]{6}" maxlength="6" placeholder="Sechs Ziffern aus der App" required>
+      <button type="submit">Anmelden</button>
+      <div class="fehler">${sicher(fehler || "")}</div>
+    </form>`;
+  document.getElementById("f-an").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await API.anmelden({benutzer: f.get("benutzer"), passwort: f.get("passwort"),
+                          code: f.get("code")});
+      reiter.hidden = false;
+      lade();
+    } catch (x) { zeigeAnmeldung(x.message || "Center nicht erreichbar"); }
+  });
+}
+
+async function lade(){
+  try {
+    Z.anfragen = Z.ansicht === "offen" ? await API.offen() : await API.protokoll();
+    zeichne();
+  } catch (x) { if (Z.sitzung) haupt.innerHTML = `<div class="leer">${sicher(x.message)}</div>`; }
+}
+
+function plaketten(a){
+  let h = "";
+  if (a.klasse && a.klasse !== "normal") h += `<span class="plakette p-${sicher(a.klasse)}">${sicher(a.klasse)}</span>`;
+  if (a.art !== a.klasse) h += `<span class="plakette">${sicher(a.art)}</span>`;
+  if (a.kunde) h += `<span class="plakette">${sicher(a.kunde)}</span>`;
+  return h;
+}
+
+function zeichne(){
+  if (!Z.anfragen.length){
+    haupt.innerHTML = `<div class="leer">${Z.ansicht === "offen"
+      ? "Nichts offen. Alles entschieden." : "Noch kein Eintrag im Protokoll."}</div>`;
+    return;
+  }
+  haupt.innerHTML = Z.anfragen.map(a => kachel(a)).join("");
+  for (const k of haupt.querySelectorAll("[data-auf]")){
+    k.addEventListener("click", () => {
+      const id = k.dataset.auf;
+      Z.auf.has(id) ? Z.auf.delete(id) : Z.auf.add(id);
+      zeichne();
+    });
+  }
+  for (const b of haupt.querySelectorAll("[data-urteil]")){
+    b.addEventListener("click", () => {
+      if (b.dataset.urteil === "individuell"){
+        const f = haupt.querySelector(`[data-freitext="${b.dataset.id}"]`);
+        f.style.display = "block";
+        f.querySelector("textarea").focus();
+        return;
+      }
+      entscheide(b.dataset.id, b.dataset.urteil, null, b);
+    });
+  }
+  for (const b of haupt.querySelectorAll("[data-senden]")){
+    b.addEventListener("click", () => {
+      const f = haupt.querySelector(`[data-freitext="${b.dataset.senden}"]`);
+      const t = f.querySelector("textarea").value.trim();
+      if (!t){ f.querySelector("textarea").focus(); return; }
+      entscheide(b.dataset.senden, "individuell", t, b);
+    });
+  }
+}
+
+function kachel(a){
+  const auf = Z.auf.has(a.id);
+  const frist = a.frist ? ("bis " + text(a.frist).slice(0, 16).replace("T", " ")) : null;
+  const zeilen = [a.agent, frist, (a.frist_stunden || 72) + " h Gueltigkeit"].filter(Boolean);
+  const protokoll = Z.ansicht === "protokoll";
+  return `
+  <article class="kachel">
+    <button class="kopf" data-auf="${sicher(a.id)}" aria-expanded="${auf}">
+      <span>
+        <span class="kurz">${sicher(a.kurztext)}</span>
+        <span class="meta">${plaketten(a)}<br>${sicher(zeilen.join("  ·  "))}</span>
+      </span>
+      <span class="pfeil">${auf ? "&#9652;" : "&#9662;"}</span>
+    </button>
+    ${a.rat ? `<div class="rat"><b>Rat:</b> ${sicher(a.rat)}</div>` : ""}
+    ${auf ? `
+      <div class="mehr">
+        ${a.hintergrund ? `<h3>Hintergrund</h3><div>${sicher(a.hintergrund)}</div>` : ""}
+        <h3 style="margin-top:12px">Genauer Wortlaut</h3>
+        <pre>${sicher(a.wortlaut)}</pre>
+        <div class="summe">Pruefsumme ${sicher(a.wortlaut_sha256)}</div>
+      </div>` : ""}
+    ${protokoll ? verlauf(a) : (!auf ? `
+      <div class="meta" style="margin-top:12px">Zum Entscheiden aufklappen und den Wortlaut lesen.</div>`
+    : `
+      <div class="knoepfe">
+        <button class="k-ja"   data-urteil="ja"          data-id="${sicher(a.id)}">Ja</button>
+        <button class="k-nein" data-urteil="nein"        data-id="${sicher(a.id)}">Nein</button>
+        <button class="k-ind"  data-urteil="individuell" data-id="${sicher(a.id)}">Individuell</button>
+      </div>
+      <div class="freitext" data-freitext="${sicher(a.id)}">
+        <textarea placeholder="Was soll stattdessen passieren? Dieser Text geht an den Agenten."></textarea>
+        <button data-senden="${sicher(a.id)}">Text abschicken</button>
+      </div>`)}
+  </article>`;
+}
+
+function verlauf(a){
+  const e = (a.entscheidungen || []).map(x =>
+    `<div><b>${sicher(x.urteil)}</b> am ${sicher(text(x.entschieden_am).slice(0,16).replace("T"," "))}`
+    + (x.freitext ? `: ${sicher(x.freitext)}` : "") + `</div>`).join("");
+  const u = (a.ausfuehrungen || []).map(x =>
+    `<div>ausgefuehrt von ${sicher(x.agent)} am
+     ${sicher(text(x.ausgefuehrt_am).slice(0,16).replace("T"," "))}: ${sicher(x.beleg)}</div>`).join("");
+  return `<div class="mehr verlauf">${e || "<div>noch nicht entschieden</div>"}${u}</div>`;
+}
+
+async function entscheide(id, urteil, freitext, knopf){
+  for (const b of haupt.querySelectorAll("button")) b.disabled = true;
+  try {
+    await API.entscheiden(id, urteil, freitext);
+    // Entschiedene Kachel verschwindet sofort, ohne Neuladen.
+    Z.anfragen = Z.anfragen.filter(a => a.id !== id);
+    Z.auf.delete(id);
+    zeichne();
+  } catch (x) {
+    for (const b of haupt.querySelectorAll("button")) b.disabled = false;
+    knopf.insertAdjacentHTML("afterend", `<div class="fehler">${sicher(x.message)}</div>`);
+  }
+}
+
+document.getElementById("r-offen").addEventListener("click", () => wechsle("offen"));
+document.getElementById("r-protokoll").addEventListener("click", () => wechsle("protokoll"));
+function wechsle(w){
+  Z.ansicht = w;
+  document.getElementById("r-offen").setAttribute("aria-selected", String(w === "offen"));
+  document.getElementById("r-protokoll").setAttribute("aria-selected", String(w === "protokoll"));
+  Z.auf.clear();
+  lade();
+}
+
+API.start().then(angemeldet => {
+  if (angemeldet){ reiter.hidden = false; lade(); } else { zeigeAnmeldung(); }
+});
+setInterval(() => { if (Z.sitzung && Z.ansicht === "offen" && !Z.auf.size) lade(); }, 20000);
+</script>
+</body>
+</html>
