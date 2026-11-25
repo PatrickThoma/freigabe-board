@@ -101,6 +101,7 @@ const haupt = document.getElementById("haupt");
 const reiter = document.getElementById("reiter");
 
 function text(t){ return (t == null ? "" : String(t)); }
+function liste(x){ return Array.isArray(x) ? x : (x ? [x] : []); }
 // Steuer- und Richtungszeichen sichtbar machen: sonst kann ein Text anders aussehen als er ist
 // (Bau, 23.11.). Angezeigt wird der Codepunkt in spitzen Klammern.
 function entschaerfe(t){
@@ -178,20 +179,27 @@ const API_ECHT = {
   async offen(){
     const sb = await this._client();
     const { data, error } = await sb.from("freigabe_anfrage")
-      .select("*, freigabe_entscheidung(id)").gte("erstellt_am", this.SCHARF_AB).order("nr");
+      .select("*, freigabe_entscheidung(id), freigabe_rueckzug(grund)")
+      .gte("erstellt_am", this.SCHARF_AB).order("nr");
     if (error) throw new Error(error.message);
-    return (data || []).filter(a => !(a.freigabe_entscheidung || []).length);
+    // Weg vom Board, sobald entschieden ODER vom Agenten zurueckgezogen. Im Protokoll bleibt
+    // beides stehen, hier soll nur liegen, was Patrick noch entscheiden muss.
+    return (data || []).filter(a =>
+      !(a.freigabe_entscheidung || []).length && !a.freigabe_rueckzug);
   },
   async protokoll(){
     const sb = await this._client();
     const { data, error } = await sb.from("freigabe_anfrage")
-      .select("*, freigabe_entscheidung(*), freigabe_ausfuehrung(*)")
+      .select("*, freigabe_entscheidung(*), freigabe_ausfuehrung(*), freigabe_rueckzug(*)")
       .gte("erstellt_am", this.SCHARF_AB).order("nr", {ascending:false});
     if (error) throw new Error(error.message);
     return (data || []).map(a => Object.assign(a, {
       entscheidungen: (a.freigabe_entscheidung || [])
         .sort((x,y) => String(x.entschieden_am).localeCompare(String(y.entschieden_am))),
-      ausfuehrungen: a.freigabe_ausfuehrung || [],
+      // Supabase liefert bei eindeutiger Verknuepfung (unique anfrage_id) ein einzelnes Objekt
+      // statt einer Liste. Darum beides annehmen (Fehler 25.11.2026: Protokoll leer).
+      ausfuehrungen: liste(a.freigabe_ausfuehrung),
+      rueckzug: liste(a.freigabe_rueckzug)[0] || null,
     }));
   },
   async entscheiden(id, urteil, freitext){
@@ -326,7 +334,14 @@ function verlauf(a){
   const u = (a.ausfuehrungen || []).map(x =>
     `<div>ausgefuehrt von ${sicher(x.agent)} am
      ${sicher(text(x.ausgefuehrt_am).slice(0,16).replace("T"," "))}: ${sicher(x.beleg)}</div>`).join("");
-  return `<div class="mehr verlauf">${e || "<div>noch nicht entschieden</div>"}${u}</div>`;
+  // Ein zurueckgezogener Punkt bleibt sichtbar, mit Grund. Verschwinden tut er nur aus der
+  // Liste der offenen Kacheln, nie aus dem Protokoll.
+  const r = a.rueckzug
+    ? `<div><b>zurueckgezogen</b> von ${sicher(a.rueckzug.agent)} am
+       ${sicher(text(a.rueckzug.am).slice(0,16).replace("T"," "))}: ${sicher(a.rueckzug.grund)}</div>`
+    : "";
+  const nichts = r ? "" : "<div>noch nicht entschieden</div>";
+  return `<div class="mehr verlauf">${r}${e || nichts}${u}</div>`;
 }
 
 async function entscheide(id, urteil, freitext, knopf){
