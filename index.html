@@ -13,6 +13,7 @@
   @media (prefers-color-scheme: dark){
     :root{ --papier:#15161a; --karte:#1e2026; --rand:#33353d; --text:#f2f2f4; --leise:#a0a2ad;
            --ja:#4ec07d; --nein:#ef8080; --ind:#e0b04b; --hinweis:#8fb4f2; }
+    .kachel .nr{background:#3b6fb6}
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--papier);color:var(--text);
@@ -31,7 +32,14 @@
   .kopf{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
         width:100%;background:none;border:0;color:inherit;text-align:left;padding:0;font:inherit}
   .kurz{font-weight:600;font-size:17px;line-height:1.3}
+  .nr{display:inline-block;font-weight:800;font-size:19px;margin-right:8px;padding:1px 8px;border-radius:6px;background:#1f3a5f;color:#fff;white-space:nowrap}
   .meta{color:var(--leise);font-size:13px;margin-top:4px}
+  /* Abo-Limits (26.11.2026) */
+  .balken{height:10px;border-radius:5px;background:var(--rand);overflow:hidden;margin:4px 0 2px}
+  .balken i{display:block;height:100%;background:var(--text)}
+  .balken i.hoch{background:#c0392b}
+  .fenster{margin-top:10px;font-size:15px}
+  .fenster .zahl{font-weight:600;font-variant-numeric:tabular-nums}
   .pfeil{color:var(--leise);font-size:20px;line-height:1;padding-left:6px}
   .rat{margin-top:10px;color:var(--text);font-size:15px}
   .rat b{color:var(--hinweis)}
@@ -77,6 +85,7 @@
   <div class="reiter" id="reiter" hidden>
     <button id="r-offen" aria-selected="true">Offen</button>
     <button id="r-protokoll" aria-selected="false">Protokoll</button>
+    <button id="r-abos" aria-selected="false" hidden>Limits</button><!-- ausgeblendet bis agents.abo_limits eingespielt ist (Manager 3d66, 26.11.2026) -->
   </div>
 </header>
 <main id="haupt"></main>
@@ -131,6 +140,13 @@ const API_TEST = {
     return d.anfragen || [];
   },
   offen(){ return this.hole("/patrick/offen"); },
+  async aboLimits(){
+    const a = await fetch("/patrick/abo-limits", {headers:{"Authorization":"Bearer " + Z.sitzung}});
+    if (a.status === 401){ abmelden(); throw new Error("nicht angemeldet"); }
+    const d = await a.json().catch(() => ({}));
+    if (!a.ok) throw new Error(d.fehler || ("Fehler " + a.status));
+    return d.abos || [];
+  },
   protokoll(){ return this.hole("/patrick/protokoll"); },
   async entscheiden(id, urteil, freitext){
     const a = await fetch("/patrick/entscheidung", {
@@ -179,28 +195,41 @@ const API_ECHT = {
   async offen(){
     const sb = await this._client();
     const { data, error } = await sb.from("freigabe_anfrage")
-      .select("*, freigabe_entscheidung(id), freigabe_rueckzug(grund)")
+      .select("*, freigabe_entscheidung(id), freigabe_rueckzug(grund), "
+        + "ersetzt_durch:freigabe_ersetzung!freigabe_ersetzung_alt_fk(neu_nr)")
       .gte("erstellt_am", this.SCHARF_AB).order("nr");
     if (error) throw new Error(error.message);
-    // Weg vom Board, sobald entschieden ODER vom Agenten zurueckgezogen. Im Protokoll bleibt
-    // beides stehen, hier soll nur liegen, was Patrick noch entscheiden muss.
+    // Weg vom Board, sobald entschieden, vom Agenten zurueckgezogen ODER durch eine neue Karte
+    // ersetzt (Patrick, 26.11.2026). Im Protokoll bleibt alles stehen, hier soll nur liegen,
+    // was Patrick noch entscheiden muss.
     return (data || []).filter(a =>
-      !(a.freigabe_entscheidung || []).length && !a.freigabe_rueckzug);
+      !(a.freigabe_entscheidung || []).length && !a.freigabe_rueckzug
+      && !liste(a.ersetzt_durch).length);
+  },
+  async aboLimits(){
+    const sb = await this._client();
+    const { data, error } = await sb.from("abo_limits").select("*");
+    if (error) throw new Error(error.message);
+    return data || [];
   },
   async protokoll(){
     const sb = await this._client();
     const { data, error } = await sb.from("freigabe_anfrage")
-      .select("*, freigabe_entscheidung(*), freigabe_ausfuehrung(*), freigabe_rueckzug(*)")
+      .select("*, freigabe_entscheidung(*), freigabe_ausfuehrung(*), freigabe_rueckzug(*), "
+        + "ersetzt_durch:freigabe_ersetzung!freigabe_ersetzung_alt_fk(*), "
+        + "ersetzt:freigabe_ersetzung!freigabe_ersetzung_neu_fk(*)")
       .gte("erstellt_am", this.SCHARF_AB).order("nr", {ascending:false});
     if (error) throw new Error(error.message);
-    return (data || []).map(a => Object.assign(a, {
+    return ersetzteEinfalten((data || []).map(a => Object.assign(a, {
       entscheidungen: (a.freigabe_entscheidung || [])
         .sort((x,y) => String(x.entschieden_am).localeCompare(String(y.entschieden_am))),
       // Supabase liefert bei eindeutiger Verknuepfung (unique anfrage_id) ein einzelnes Objekt
       // statt einer Liste. Darum beides annehmen (Fehler 25.11.2026: Protokoll leer).
       ausfuehrungen: liste(a.freigabe_ausfuehrung),
       rueckzug: liste(a.freigabe_rueckzug)[0] || null,
-    }));
+      ersetzt_durch: liste(a.ersetzt_durch)[0] || null,
+      ersetzt: liste(a.ersetzt)[0] || null,
+    })));
   },
   async entscheiden(id, urteil, freitext){
     const sb = await this._client();
@@ -209,6 +238,25 @@ const API_ECHT = {
     if (error) throw new Error(error.message);
   },
 };
+
+// Nur eine Karte bleibt (Patrick, 26.11.2026). Eine ersetzte Karte steht im Protokoll nicht mehr
+// fuer sich, sondern als Vorgaenger unter der Karte, die sie ersetzt. Geloescht wird nichts.
+// Dieselbe Regel rechnet dienst.py (ersetzte_einfalten) fuer die Testwelt.
+function ersetzteEinfalten(anfragen){
+  const nachId = new Map(anfragen.map(a => [a.id, a]));
+  for (const a of anfragen){
+    const kette = [];
+    let z = a.ersetzt;
+    while (z && nachId.has(z.alt_id) && kette.length < 50){
+      const alt = nachId.get(z.alt_id);
+      kette.push({ nr: alt.nr, kurztext: alt.kurztext, entscheidungen: alt.entscheidungen || [],
+                   ersetzt_am: z.am, alt_urteil: z.alt_urteil });
+      z = alt.ersetzt;
+    }
+    a.vorgaenger = kette;
+  }
+  return anfragen.filter(a => !a.ersetzt_durch);
+}
 
 const API = ECHT ? API_ECHT : API_TEST;
 
@@ -240,7 +288,47 @@ function zeigeAnmeldung(fehler){
   });
 }
 
+// Abo-Limits der drei Rechner (Patrick 26.11.2026). Werte kommen aus der Statuszeile von
+// Claude Code, gemeldet von tools/abo-limits. Alter der Messung steht immer dabei.
+const ABO_NAMEN = {laptop:"Xed, Laptop", macstudio:"Dex, Mac Studio", hausrechner:"Hausrechner"};
+function uhr(t){
+  if (!t) return "?";
+  const d = new Date(t), heute = new Date();
+  const hm = d.toLocaleTimeString("de-DE", {hour:"2-digit", minute:"2-digit"});
+  return d.toDateString() === heute.toDateString() ? hm
+    : d.toLocaleDateString("de-DE", {weekday:"short", day:"2-digit", month:"2-digit"}) + " " + hm;
+}
+function alter(t){
+  const m = Math.round((Date.now() - new Date(t).getTime()) / 60000);
+  return m < 1 ? "gerade eben" : m < 120 ? `vor ${m} Min.` : `vor ${Math.round(m / 60)} Std.`;
+}
+function fensterHtml(name, p, neu){
+  if (p == null) return `<div class="fenster">${name}: <span class="meta">kein Wert</span></div>`;
+  const abgelaufen = neu && new Date(neu).getTime() < Date.now();
+  const w = Math.max(0, Math.min(100, Number(p)));
+  return `<div class="fenster">${name}: <span class="zahl">${abgelaufen ? "0" : sicher(Number(p).toLocaleString("de-DE"))} %</span>
+    <span class="meta">${abgelaufen ? "seit " + uhr(neu) + " neu aufgeladen" : "neu ab " + uhr(neu)}</span>
+    <div class="balken"><i class="${w >= 80 && !abgelaufen ? "hoch" : ""}" style="width:${abgelaufen ? 0 : w}%"></i></div></div>`;
+}
+async function ladeAbos(){
+  try {
+    const zeilen = await API.aboLimits();
+    const nach = Object.fromEntries(zeilen.map(z => [z.rechner, z]));
+    haupt.innerHTML = Object.keys(ABO_NAMEN).map(r => {
+      const z = nach[r];
+      if (!z) return `<article class="kachel"><div class="kurz">${ABO_NAMEN[r]}</div>
+        <div class="meta">Noch keine Messung gemeldet.</div></article>`;
+      return `<article class="kachel"><div class="kurz">${ABO_NAMEN[r]}</div>
+        <div class="meta">gemessen ${uhr(z.gemessen_am)} (${alter(z.gemessen_am)})</div>
+        ${fensterHtml("5 Stunden", z.fuenf_h_prozent, z.fuenf_h_neu_um)}
+        ${fensterHtml("Woche", z.woche_prozent, z.woche_neu_um)}</article>`;
+    }).join("") + `<div class="leer meta">Gemessen wird, wenn am Rechner eine Claude-Sitzung arbeitet.
+      Die Seite laedt jede Minute neu.</div>`;
+  } catch (x) { if (Z.sitzung) haupt.innerHTML = `<div class="leer">${sicher(x.message)}</div>`; }
+}
+
 async function lade(){
+  if (Z.ansicht === "abos") return ladeAbos();
   try {
     Z.anfragen = Z.ansicht === "offen" ? await API.offen() : await API.protokoll();
     zeichne();
@@ -299,7 +387,7 @@ function kachel(a){
   <article class="kachel">
     <button class="kopf" data-auf="${sicher(a.id)}" aria-expanded="${auf}">
       <span>
-        <span class="kurz">${sicher(a.kurztext)}</span>
+        <span class="kurz">${a.nr != null ? `<span class="nr">Nr ${sicher(a.nr)}</span>` : ""}${sicher(a.kurztext)}</span>
         <span class="meta">${plaketten(a)}<br>${sicher(zeilen.join("  ·  "))}</span>
       </span>
       <span class="pfeil">${auf ? "&#9652;" : "&#9662;"}</span>
@@ -341,7 +429,16 @@ function verlauf(a){
        ${sicher(text(a.rueckzug.am).slice(0,16).replace("T"," "))}: ${sicher(a.rueckzug.grund)}</div>`
     : "";
   const nichts = r ? "" : "<div>noch nicht entschieden</div>";
-  return `<div class="mehr verlauf">${r}${e || nichts}${u}</div>`;
+  // Vorgaenger dieser Karte: was sie ersetzt hat, mit dem damaligen Stand. Nur zum Nachlesen,
+  // ein altes Ja dort gilt nicht mehr.
+  const v = (a.vorgaenger || []).map(x =>
+    `<div class="meta"><b>ersetzt Nr ${sicher(x.nr)}</b> am
+     ${sicher(text(x.ersetzt_am).slice(0,16).replace("T"," "))}: ${sicher(x.kurztext)}`
+    + ((x.entscheidungen || []).length
+        ? " (dort: " + x.entscheidungen.map(y => sicher(y.urteil)).join(", ") + ", gilt nicht mehr)"
+        : " (dort: offen)")
+    + `</div>`).join("");
+  return `<div class="mehr verlauf">${r}${e || nichts}${u}${v}</div>`;
 }
 
 async function entscheide(id, urteil, freitext, knopf){
@@ -360,10 +457,12 @@ async function entscheide(id, urteil, freitext, knopf){
 
 document.getElementById("r-offen").addEventListener("click", () => wechsle("offen"));
 document.getElementById("r-protokoll").addEventListener("click", () => wechsle("protokoll"));
+document.getElementById("r-abos").addEventListener("click", () => wechsle("abos"));
 function wechsle(w){
   Z.ansicht = w;
   document.getElementById("r-offen").setAttribute("aria-selected", String(w === "offen"));
   document.getElementById("r-protokoll").setAttribute("aria-selected", String(w === "protokoll"));
+  document.getElementById("r-abos").setAttribute("aria-selected", String(w === "abos"));
   Z.auf.clear();
   lade();
 }
@@ -372,6 +471,7 @@ API.start().then(angemeldet => {
   if (angemeldet){ reiter.hidden = false; lade(); } else { zeigeAnmeldung(); }
 });
 setInterval(() => { if (Z.sitzung && Z.ansicht === "offen" && !Z.auf.size) lade(); }, 20000);
+setInterval(() => { if (Z.sitzung && Z.ansicht === "abos") lade(); }, 60000);
 </script>
 </body>
 </html>
