@@ -295,8 +295,8 @@ function uhr(t){
   if (!t) return "?";
   const d = new Date(t), heute = new Date();
   const hm = d.toLocaleTimeString("de-DE", {hour:"2-digit", minute:"2-digit"});
-  return d.toDateString() === heute.toDateString() ? hm
-    : d.toLocaleDateString("de-DE", {weekday:"short", day:"2-digit", month:"2-digit"}) + " " + hm;
+  // Immer mit Datum (Patrick TG 1599, 27.11.2026: "nur eine Uhrzeit")
+  return d.toLocaleDateString("de-DE", {weekday:"short", day:"2-digit", month:"2-digit"}) + " " + hm;
 }
 function alter(t){
   const m = Math.round((Date.now() - new Date(t).getTime()) / 60000);
