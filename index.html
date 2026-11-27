@@ -37,7 +37,13 @@
   /* Abo-Limits (26.11.2026) */
   .balken{height:10px;border-radius:5px;background:var(--rand);overflow:hidden;margin:4px 0 2px}
   .balken i{display:block;height:100%;background:var(--text)}
-  .balken i.hoch{background:#c0392b}
+  /* Limits-Farben nach Soll (Patrick TG 5670, 27.11.2026) */
+  .balken i.gruen{background:var(--ja)}
+  .balken i.gelb{background:var(--ind)}
+  .balken i.rot{background:var(--nein)}
+  .balken i.grau{background:var(--leise)}
+  .balken i.soll{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;
+                 background:var(--text);box-shadow:0 0 0 1px var(--karte)}
   .fenster{margin-top:10px;font-size:15px}
   .fenster .zahl{font-weight:600;font-variant-numeric:tabular-nums}
   .pfeil{color:var(--leise);font-size:20px;line-height:1;padding-left:6px}
@@ -304,11 +310,24 @@ function alter(t){
 }
 function fensterHtml(name, p, neu){
   if (p == null) return `<div class="fenster">${name}: <span class="meta">kein Wert</span></div>`;
-  const abgelaufen = neu && new Date(neu).getTime() < Date.now();
+  // Soll = verstrichene Zeit / Fensterlaenge x 100 (Patrick TG 5670, 27.11.2026).
+  // gruen: unter Soll-5, gelb: Soll +-5, rot: ueber Soll+5, grau: Fenster abgelaufen.
+  const laenge = name === "Woche" ? 7 * 24 * 60 * 60000 : 300 * 60000;
+  const jetzt = Date.now();
+  const ende = neu ? new Date(neu).getTime() : NaN;
+  const abgelaufen = !isNaN(ende) && ende < jetzt;
   const w = Math.max(0, Math.min(100, Number(p)));
-  return `<div class="fenster">${name}: <span class="zahl">${abgelaufen ? "0" : sicher(Number(p).toLocaleString("de-DE"))} %</span>
+  let soll = null, farbe = "";
+  if (abgelaufen) farbe = "grau";
+  else if (!isNaN(ende)) {
+    soll = Math.max(0, Math.min(100, (laenge - (ende - jetzt)) / laenge * 100));
+    farbe = Number(p) > soll + 5 ? "rot" : Number(p) < soll - 5 ? "gruen" : "gelb";
+  }
+  const sollText = soll == null ? "" : ` <span class="meta">Soll jetzt ${Math.round(soll)} %</span>`;
+  const marke = soll == null ? "" : `<i class="soll" style="left:${soll.toFixed(1)}%"></i>`;
+  return `<div class="fenster">${name}: <span class="zahl">${abgelaufen ? "0" : sicher(Number(p).toLocaleString("de-DE"))} %</span>${sollText}
     <span class="meta">${abgelaufen ? "seit " + uhr(neu) + " neu aufgeladen" : "neu ab " + uhr(neu)}</span>
-    <div class="balken"><i class="${w >= 80 && !abgelaufen ? "hoch" : ""}" style="width:${abgelaufen ? 0 : w}%"></i></div></div>`;
+    <div class="balken" style="position:relative"><i class="${farbe}" style="width:${abgelaufen ? 0 : w}%"></i>${marke}</div></div>`;
 }
 async function ladeAbos(){
   try {
