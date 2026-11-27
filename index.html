@@ -38,9 +38,11 @@
   .balken{height:10px;border-radius:5px;background:var(--rand);overflow:hidden;margin:4px 0 2px}
   .balken i{display:block;height:100%;background:var(--text)}
   /* Limits-Farben nach Soll (Patrick TG 5670, 27.11.2026) */
-  .balken i.gruen{background:var(--ja)}
-  .balken i.gelb{background:var(--ind)}
-  .balken i.rot{background:var(--nein)}
+  /* Farben fuer Rot-Gruen-Sehschwaeche (Patrick TG 5679): blau = unter Soll, kraeftiges Gelb = im Soll, Rot = darueber */
+  .balken i.gruen{background:#1f6fd1}
+  .balken i.gelb{background:#f5c400}
+  .balken i.rot{background:#d0021b}
+  .zustand{font-weight:600;margin-left:6px}
   .balken i.grau{background:var(--leise)}
   .balken i.soll{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;
                  background:var(--text);box-shadow:0 0 0 1px var(--karte)}
@@ -311,7 +313,7 @@ function alter(t){
 function fensterHtml(name, p, neu){
   if (p == null) return `<div class="fenster">${name}: <span class="meta">kein Wert</span></div>`;
   // Soll = verstrichene Zeit / Fensterlaenge x 100 (Patrick TG 5670, 27.11.2026).
-  // gruen: unter Soll-5, gelb: Soll +-5, rot: ueber Soll+5, grau: Fenster abgelaufen.
+  // blau (Klasse gruen): unter Soll-10, gelb: Soll +-10, rot: ueber Soll+10 (Patrick TG 5679: gelber Bereich groesser), grau: Fenster abgelaufen.
   const laenge = name === "Woche" ? 7 * 24 * 60 * 60000 : 300 * 60000;
   const jetzt = Date.now();
   const ende = neu ? new Date(neu).getTime() : NaN;
@@ -321,9 +323,10 @@ function fensterHtml(name, p, neu){
   if (abgelaufen) farbe = "grau";
   else if (!isNaN(ende)) {
     soll = Math.max(0, Math.min(100, (laenge - (ende - jetzt)) / laenge * 100));
-    farbe = Number(p) > soll + 5 ? "rot" : Number(p) < soll - 5 ? "gruen" : "gelb";
+    farbe = Number(p) > soll + 10 ? "rot" : Number(p) < soll - 10 ? "gruen" : "gelb";
   }
-  const sollText = soll == null ? "" : ` <span class="meta">Soll jetzt ${Math.round(soll)} %</span>`;
+  const wort = {gruen:"unter Soll", gelb:"im Soll", rot:"über Soll"}[farbe] || "";
+  const sollText = soll == null ? "" : `<span class="zustand">${wort}</span> <span class="meta">Soll jetzt ${Math.round(soll)} %</span>`;
   const marke = soll == null ? "" : `<i class="soll" style="left:${soll.toFixed(1)}%"></i>`;
   return `<div class="fenster">${name}: <span class="zahl">${abgelaufen ? "0" : sicher(Number(p).toLocaleString("de-DE"))} %</span>${sollText}
     <span class="meta">${abgelaufen ? "seit " + uhr(neu) + " neu aufgeladen" : "neu ab " + uhr(neu)}</span>
